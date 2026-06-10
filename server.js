@@ -32,7 +32,8 @@ app.get('/:slug', (req, res) => {
 
     if (realUrl) {
         // 🌐 Extract visitor details
-        const visitorIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+        const forwardedIps = req.headers['x-forwarded-for'];
+        const visitorIp = forwardedIps ? forwardedIps.split(',')[0].trim() : req.socket.remoteAddress;
         const visitorAgent = req.headers['user-agent'];
 
         // 🔢 Update the click counter
