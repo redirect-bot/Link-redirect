@@ -78,7 +78,7 @@ async function sendTelegramAlert(slug, visitorIp, visitorAgent, clickCount) {
                     `🔗 *Link:* /${slug}\n` +
                     `🔢 *Total Clicks:* ${clickCount}\n` +
                     `🌐 *IP Address:* ${visitorIp}\n` +
-                    `📱 *User Agent:* ${visitorAgent}`;
+                    `📱 *User Agent:* \`${visitorAgent}\``;
 
     const telegramUrl = `https://api.telegram.org/bot${token}/sendMessage`;
     
