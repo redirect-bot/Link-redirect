@@ -7,10 +7,25 @@ app.use(useragent.express())
 const PORT = 3000;
 
 
-const urlDatabase = {};
-const clickDatabase = {};
+const mongoose = require('mongoose');
 
-app.get('/shorten', (req, res) => {
+// Connect to MongoDB using the environment variable
+mongoose.connect(process.env.MONGODB_URI)
+  .then(() => console.log('📁 Connected to MongoDB successfully!'))
+  .catch(err => console.error('❌ MongoDB connection error:', err));
+
+// 📝 Define the blueprint for our link data
+const linkSchema = new mongoose.Schema({
+    slug: { type: String, required: true, unique: true },
+    realUrl: { type: String, required: true },
+    clicks: { type: Number, default: 0 }
+});
+
+// Create the data model based on the schema
+const Link = mongoose.model('Link', linkSchema);
+
+
+app.get('/shorten', async (req, res) => {
     const slug = req.query.slug;
     const url = req.query.url;
 
@@ -19,37 +34,55 @@ app.get('/shorten', (req, res) => {
         return res.status(400).send('Error: Please provide both ?slug= and ?url=');
     }
 
-    // Save the link pair to our dictionary
-    urlDatabase[slug] = url;
+    try {
+        // 💾 Save or update the link pair in MongoDB
+        // upsert: true creates a new document if the slug doesn't exist yet
+        await Link.findOneAndUpdate(
+            { slug: slug }, 
+            { realUrl: url, clicks: 0 }, // Reset clicks to 0 if updating/creating
+            { upsert: true, new: true }
+        );
 
-    res.send(`Success! Short link created: http://localhost:3000/${slug}`);
+        // 🌐 Dynamically get the current host (works for both localhost and Render)
+        const host = req.get('host');
+        const protocol = req.protocol; // http or https
+        
+        res.send(`Success! Short link created: ${protocol}://${host}/${slug}`);
+    } catch (error) {
+        console.error('❌ Error saving link to database:', error);
+        res.status(500).send('Internal Server Error');
+    }
 });
 
 // The redirect route 🧭
-app.get('/:slug', (req, res) => {
+app.get('/:slug', async (req, res) => {
     const slug = req.params.slug;
-    const realUrl = urlDatabase[slug];
 
-    if (realUrl) {
-        // 🌐 Extract visitor details
-        const forwardedIps = req.headers['x-forwarded-for'];
-        const visitorIp = forwardedIps ? forwardedIps.split(',')[0].trim() : req.socket.remoteAddress;
-        const visitorAgent = req.headers['user-agent'];
+    try {
+        // 🔍 Look for the slug in the MongoDB database
+        const linkData = await Link.findOne({ slug: slug });
 
-        // 🔢 Update the click counter
-        if (clickDatabase[slug]) {
-            clickDatabase[slug]++;
+        if (linkData) {
+            // 🕵️‍♂️ Extract ONLY the first IP address from the chain
+            const forwardedIps = req.headers['x-forwarded-for'];
+            const visitorIp = forwardedIps ? forwardedIps.split(',')[0].trim() : req.socket.remoteAddress;
+            const visitorAgent = req.headers['user-agent'];
+
+            // 🔢 Increment the click counter in the database and save it
+            linkData.clicks++;
+            await linkData.save();
+
+            // 🚀 Forward the user instantly
+            res.redirect(linkData.realUrl);
+
+            // 📢 Send clean data to your Telegram alert function
+            sendTelegramAlert(slug, visitorIp, visitorAgent, linkData.clicks); 
         } else {
-            clickDatabase[slug] = 1;
+            res.status(404).send('Link not found!');
         }
-
-        // 🚀 Forward the user instantly
-        res.redirect(realUrl);
-
-        // 📢 Send all data to the alert function
-        sendTelegramAlert(slug, visitorIp, visitorAgent, clickDatabase[slug]); 
-    } else {
-        res.status(404).send('Link not found!');
+    } catch (error) {
+        console.error('Error handling redirect:', error);
+        res.status(500).send('Internal Server Error');
     }
 });
 
