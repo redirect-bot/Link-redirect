@@ -8,6 +8,7 @@ const PORT = 3000;
 
 
 const urlDatabase = {};
+const clickDatabase = {};
 
 app.get('/shorten', (req, res) => {
     const slug = req.query.slug;
@@ -25,16 +26,30 @@ app.get('/shorten', (req, res) => {
 });
 
 // The redirect route 🧭
+const visitorIp = req.headers['x-forwarded-for'];
+const visitorAgent = req.headers['user-agent'];
 app.get('/:slug', (req, res) => {
     const slug = req.params.slug;
     const realUrl = urlDatabase[slug];
 
     if (realUrl) {
-        // If the link exists, forward them instantly
+        // 🌐 Extract visitor details
+        const visitorIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+        const visitorAgent = req.headers['user-agent'];
+
+        // 🔢 Update the click counter
+        if (clickDatabase[slug]) {
+            clickDatabase[slug]++;
+        } else {
+            clickDatabase[slug] = 1;
+        }
+
+        // 🚀 Forward the user instantly
         res.redirect(realUrl);
-        sendTelegramAlert(slug, req.useragent); // Triggers in the background
+
+        // 📢 Send all data to the alert function
+        sendTelegramAlert(slug, visitorIp, visitorAgent, clickDatabase[slug]); 
     } else {
-        // If it doesn't exist, send an error message
         res.status(404).send('Link not found!');
     }
 });
@@ -56,16 +71,16 @@ app.listen(PORT, () => {
 
 
 
-async function sendTelegramAlert(slug, ua) {
+async function sendTelegramAlert(slug, visitorIp, visitorAgent, clickCount) {
     const token = process.env.TELEGRAM_TOKEN;
     const chatId = process.env.TELEGRAM_CHAT_ID;
     
     // Construct a clean, readable text message 📝
     const message = `🚨 *Link Clicked!*\n\n` +
-                    `🔗 *Slug:* /${slug}\n` +
-                    `📱 *Device:* ${ua.isMobile ? 'Mobile' : ua.isTablet ? 'Tablet' : 'Desktop'}\n` +
-                    `🌐 *Browser:* ${ua.browser}\n` +
-                    `💻 *OS:* ${ua.os}`;
+                    `🔗 *Link:* /${slug}\n` +
+                    `🔢 *Total Clicks:* ${clickCount}\n` +
+                    `🌐 *IP Address:* ${visitorIp}\n` +
+                    `📱 *User Agent:* ${visitorAgent}`;
 
     const telegramUrl = `https://api.telegram.org/bot${token}/sendMessage`;
     
