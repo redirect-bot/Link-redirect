@@ -7,7 +7,7 @@ app.use(useragent.express())
 const PORT = 3000;
 
 
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 // Connect to MongoDB using the environment variable
 mongoose.connect(process.env.MONGODB_URI)
