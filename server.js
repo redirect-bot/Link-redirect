@@ -26,8 +26,6 @@ app.get('/shorten', (req, res) => {
 });
 
 // The redirect route 🧭
-const visitorIp = req.headers['x-forwarded-for'];
-const visitorAgent = req.headers['user-agent'];
 app.get('/:slug', (req, res) => {
     const slug = req.params.slug;
     const realUrl = urlDatabase[slug];
