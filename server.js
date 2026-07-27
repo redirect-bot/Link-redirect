@@ -21,7 +21,7 @@ const linkSchema = new mongoose.Schema({
 
 const Link = mongoose.model('Link', linkSchema);
 
-// 🔍 Helper: Check if visitor is a Bot, Scanner, or Datacenter IP
+// 🔍 Helper: Check if visitor is a Bot by User-Agent (IP info fetched for logging only)
 async function isBotOrProxy(visitorIp, reqUserAgent, rawAgentString = '') {
     const agentLower = rawAgentString.toLowerCase();
 
@@ -41,24 +41,20 @@ async function isBotOrProxy(visitorIp, reqUserAgent, rawAgentString = '') {
         return { isBot: false, reason: 'Local Development Traffic' };
     }
 
-    // 2. Deep Check: IP Intelligence API (Checks for Datacenters, VPNs & Proxies)
+    // 2. Fetch IP Intelligence ONLY for logging (No blocking based on IP!)
     try {
-        const response = await axios.get(`http://ip-api.com/json/${visitorIp}?fields=status,hosting,proxy,org,isp`, { timeout: 3000 });
+        const response = await axios.get(`http://ip-api.com/json/${visitorIp}?fields=status,org,isp`, { timeout: 3000 });
         if (response.data && response.data.status === 'success') {
-            const { hosting, proxy, org, isp } = response.data;
-            
-            // If traffic originates from a cloud provider/datacenter or proxy
-            if (hosting || proxy) {
-                return { isBot: true, reason: `Datacenter/Proxy IP (${org || isp || 'Cloud Provider'})` };
-            }
+            const { org, isp } = response.data;
+            console.log(`ℹ️ Visitor IP Details: ${visitorIp} (${org || isp || 'Unknown Network'})`);
         }
     } catch (error) {
-        console.error('IP API lookup failed (allowing request by default):', error.message);
+        console.error('IP API lookup failed:', error.message);
     }
 
+    // Always allow traffic through unless triggered by User-Agent!
     return { isBot: false, reason: 'Human Traffic' };
 }
-
 // ✂️ Shorten Link Route
 app.get('/shorten', async (req, res) => {
     const slug = req.query.slug;
