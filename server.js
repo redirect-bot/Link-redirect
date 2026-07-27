@@ -4,10 +4,14 @@ import axios from 'axios';
 import mongoose from 'mongoose';
 
 const app = express();
+
+// Middleware
 app.use(useragent.express());
+app.use(express.urlencoded({ extended: true })); // 📝 Parses incoming HTML form submissions
+
 const PORT = process.env.PORT || 3000;
 
-// Connect to MongoDB
+// 📁 Connect to MongoDB
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log('📁 Connected to MongoDB successfully!'))
   .catch(err => console.error('❌ MongoDB connection error:', err));
@@ -41,7 +45,7 @@ async function isBotOrProxy(visitorIp, reqUserAgent, rawAgentString = '') {
         return { isBot: false, reason: 'Local Development Traffic' };
     }
 
-    // 2. Fetch IP Intelligence ONLY for logging (No blocking based on IP!)
+    // 2. Fetch IP Intelligence ONLY for logging
     try {
         const response = await axios.get(`http://ip-api.com/json/${visitorIp}?fields=status,org,isp`, { timeout: 3000 });
         if (response.data && response.data.status === 'success') {
@@ -52,9 +56,9 @@ async function isBotOrProxy(visitorIp, reqUserAgent, rawAgentString = '') {
         console.error('IP API lookup failed:', error.message);
     }
 
-    // Always allow traffic through unless triggered by User-Agent!
     return { isBot: false, reason: 'Human Traffic' };
 }
+
 // ✂️ Shorten Link Route
 app.get('/shorten', async (req, res) => {
     const slug = req.query.slug;
@@ -81,7 +85,7 @@ app.get('/shorten', async (req, res) => {
     }
 });
 
-// 🧭 The Redirect Route (Protected by Anti-Bot)
+// 🧭 Route 1: Serve Turnstile Verification Page
 app.get('/:slug', async (req, res) => {
     const slug = req.params.slug;
 
@@ -97,31 +101,98 @@ app.get('/:slug', async (req, res) => {
         const visitorIp = forwardedIps ? forwardedIps.split(',')[0].trim() : req.socket.remoteAddress;
         const visitorAgent = req.headers['user-agent'] || 'Unknown';
 
-        // 🛡️ Run Anti-Bot & Scanner Check
+        // 🛡️ Run User-Agent Anti-Bot Check
         const botStatus = await isBotOrProxy(visitorIp, req.useragent, visitorAgent);
 
         if (botStatus.isBot) {
             console.log(`🤖 BOT BLOCKED [/${slug}]: ${visitorIp} - Reason: ${botStatus.reason}`);
-            
-            // Notify Telegram about the blocked bot without incrementing database click counts
             sendTelegramAlert(slug, visitorIp, visitorAgent, linkData.clicks, true, botStatus.reason);
-            
-            // Return 404 or blank response to confuse the bot/scanner
             return res.status(404).send('Not Found');
         }
 
-        // 👤 Genuine Human Visitor
-        linkData.clicks++;
-        await linkData.save();
+        // 📄 Serve Invisible Turnstile Verification Page
+        res.send(`
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Verifying Connection...</title>
+                <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+                <style>
+                    body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #f9f9f9; }
+                    .card { text-align: center; padding: 2rem; background: #fff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+                </style>
+            </head>
+            <body>
+                <div class="card">
+                    <h2>Verifying your browser... 🛡️</h2>
+                    <p>Please wait a moment while we establish a secure connection.</p>
+                    <form id="redirect-form" action="/verify" method="POST">
+                        <input type="hidden" name="slug" value="${slug}">
+                        <div class="cf-turnstile" 
+                             data-sitekey="${process.env.TURNSTILE_SITE_KEY}" 
+                             data-callback="onTurnstileSuccess"></div>
+                    </form>
+                </div>
 
-        // Send Telegram alert for human click
-        sendTelegramAlert(slug, visitorIp, visitorAgent, linkData.clicks, false); 
-
-        // Execute instant redirect
-        return res.redirect(linkData.realUrl);
+                <script>
+                    function onTurnstileSuccess(token) {
+                        document.getElementById('redirect-form').submit();
+                    }
+                </script>
+            </body>
+            </html>
+        `);
 
     } catch (error) {
         console.error('Error handling redirect:', error);
+        res.status(500).send('Internal Server Error');
+    }
+});
+
+// 🛡️ Route 2: Validate Turnstile Token & Execute Redirect
+app.post('/verify', async (req, res) => {
+    const slug = req.body.slug;
+    const token = req.body['cf-turnstile-response'];
+
+    if (!slug || !token) {
+        return res.status(400).send('Invalid request or missing verification token.');
+    }
+
+    try {
+        // Verify response token with Cloudflare API
+        const verifyRes = await axios.post('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+            secret: process.env.TURNSTILE_SECRET_KEY,
+            response: token
+        });
+
+        if (!verifyRes.data || !verifyRes.data.success) {
+            return res.status(403).send('Verification failed. Please try again.');
+        }
+
+        // Find the destination link in DB
+        const linkData = await Link.findOne({ slug: slug });
+        if (!linkData) {
+            return res.status(404).send('Link not found!');
+        }
+
+        // 👤 Increment human click counter
+        linkData.clicks++;
+        await linkData.save();
+
+        // Send Telegram alert
+        const forwardedIps = req.headers['x-forwarded-for'];
+        const visitorIp = forwardedIps ? forwardedIps.split(',')[0].trim() : req.socket.remoteAddress;
+        const visitorAgent = req.headers['user-agent'] || 'Unknown';
+        
+        sendTelegramAlert(slug, visitorIp, visitorAgent, linkData.clicks, false);
+
+        // 🚀 Redirect to real URL
+        return res.redirect(linkData.realUrl);
+
+    } catch (error) {
+        console.error('Turnstile verification error:', error.message);
         res.status(500).send('Internal Server Error');
     }
 });
