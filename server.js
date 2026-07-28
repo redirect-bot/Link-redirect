@@ -117,26 +117,95 @@ app.get('/:slug', async (req, res) => {
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>Verifying Connection...</title>
+                <title>Establishing Secure Connection...</title>
+                <!-- Turnstile Script -->
                 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
                 <style>
-                    body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #f9f9f9; }
-                    .card { text-align: center; padding: 2rem; background: #fff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+                    /* Minimal reset */
+                    * { margin: 0; padding: 0; box-sizing: border-box; }
+                    
+                    body { 
+                        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                        display: flex; 
+                        justify-content: center; 
+                        align-items: center; 
+                        height: 100vh; 
+                        background-color: #fcfcfd; /* Clean, almost white bg */
+                        color: #1a1a1a;
+                    }
+
+                    .container { 
+                        text-align: center; 
+                        padding: 2.5rem; 
+                        background: #ffffff; 
+                        border-radius: 12px; 
+                        box-shadow: 0 10px 25px rgba(0,0,0,0.05); /* Soft, modern shadow */
+                        width: 90%;
+                        max-width: 400px;
+                        overflow: hidden; /* Needed for the bar positioning */
+                        position: relative;
+                    }
+
+                    /* 🌀 The Blue Loading Bar */
+                    .loading-bar-container {
+                        position: absolute;
+                        top: 0;
+                        left: 0;
+                        width: 100%;
+                        height: 4px; /* Thin bar */
+                        background-color: #e0e7ff; /* Lighter blue track */
+                    }
+
+                    .loading-bar-progress {
+                        height: 100%;
+                        width: 50%; /* Starting width */
+                        background-color: #4f46e5; /* Main Blue Color (Indigo-ish) */
+                        border-radius: 2px;
+                        
+                        /* Infinite sliding animation */
+                        animation: loadingSlide 1.5s infinite ease-in-out; 
+                        transform-origin: 0% 50%;
+                    }
+
+                    /* Animation Keyframes */
+                    @keyframes loadingSlide {
+                        0% { transform: translateX(-100%) scaleX(0.5); }
+                        50% { transform: translateX(25%) scaleX(0.9); }
+                        100% { transform: translateX(200%) scaleX(0.5); }
+                    }
+
+                    /* Text Styling */
+                    h2 { 
+                        font-size: 1.25rem; 
+                        font-weight: 600; 
+                        margin-top: 1rem; /* Space for the loading bar */
+                        letter-spacing: -0.025em;
+                        color: #374151;
+                    }
                 </style>
             </head>
             <body>
-                <div class="card">
-                    <h2>Verifying your browser... 🛡️</h2>
-                    <p>Please wait a moment while we establish a secure connection.</p>
+                <div class="container">
+                    <!-- The Blue Bar (Top of Container) -->
+                    <div class="loading-bar-container">
+                        <div class="loading-bar-progress"></div>
+                    </div>
+
+                    <!-- Minimal Text -->
+                    <h2>Establishing a secure connection...</h2>
+
+                    <!-- Hidden Turnstile Widget (Handles automatic submit) -->
                     <form id="redirect-form" action="/verify" method="POST">
                         <input type="hidden" name="slug" value="${slug}">
                         <div class="cf-turnstile" 
                              data-sitekey="${process.env.TURNSTILE_SITE_KEY}" 
-                             data-callback="onTurnstileSuccess"></div>
+                             data-callback="onTurnstileSuccess"
+                             data-size="invisible"></div> <!-- Ensured invisible -->
                     </form>
                 </div>
 
                 <script>
+                    // Automatic submission remains the same
                     function onTurnstileSuccess(token) {
                         document.getElementById('redirect-form').submit();
                     }
@@ -213,9 +282,9 @@ async function sendTelegramAlert(slug, visitorIp, visitorAgent, clickCount, isBo
                   `🌐 *IP Address:* ${visitorIp}\n` +
                   `📱 *User Agent:* \`${visitorAgent}\``;
     } else {
-        message = `🚨 *Human Link Clicked!*\n\n` +
+        message = `🚨 *Link Clicked!*\n\n` +
                   `🔗 *Link:* /${slug}\n` +
-                  `🔢 *Total Human Clicks:* ${clickCount}\n` +
+                  `🔢 *Total Clicks:* ${clickCount}\n` +
                   `🌐 *IP Address:* ${visitorIp}\n` +
                   `📱 *User Agent:* \`${visitorAgent}\``;
     }
